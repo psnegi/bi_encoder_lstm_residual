@@ -3,7 +3,7 @@ import utils
 from functools import partial
 import tensorflow as tf
 import numpy as np
-import cPickle
+import pickle as cPickle
 import os
 import json
 import time
@@ -85,6 +85,7 @@ def build_input_pipeline(in_files, batch_size, num_epochs=None, mode='train'):
     dataset = tf.data.TFRecordDataset(in_files)
 
     dataset = dataset.map(parse_input, num_parallel_calls=12)
+    dataset.cache()
 
     if mode is 'train':  # we only want to shuffle for training dataset
         dataset = dataset.shuffle(buffer_size=4 * batch_size)
@@ -138,7 +139,7 @@ def train():
         model = BiEncoderModel()
 
         logging.info("Building graph")
-        logits = model.inference(next_batch)
+        logits = model.inference_residual(next_batch)
         tf.add_to_collection('logits_tensor', logits)
         loss_op = model.create_loss()
         train_op = model.create_optimizer()  # for training
@@ -271,7 +272,7 @@ def test(checkpoint_file):
         model = BiEncoderModel()
 
         logging.info("Building graph")
-        logits = model.inference(next_batch)
+        logits = model.inference_residual(next_batch)
 
         # other ops for visualization, evaluation etc
         probabilities_op = model.get_validation_probabilities(logits)

@@ -1,4 +1,4 @@
-import cPickle
+import pickle as cPickle
 import numpy as np
 import json
 import logging

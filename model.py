@@ -74,6 +74,94 @@ class BiEncoderModel(object):
         print ("Shape of logits at inference {}".format(self.logits.shape))
         return self.logits
 
+    def inference_residual(self, data):
+        self.context_embedded, self.utterance_embedded = data[0], data[1]
+        self.context_len, self.utterance_len, self.labels = data[2], data[3], data[4]
+        logging.info('### Before using LSTM input context shape {} inout utterance shape {}'.format(data[0].shape, data[1].shape))
+        with tf.variable_scope('rnn_context'):
+            cell_context = tf.nn.rnn_cell.LSTMCell(
+                self.n_neurons,
+                forget_bias=2.0,
+                use_peepholes=True,
+                state_is_tuple=True)
+
+            # Run the utterance and context through the RNN
+            # Run the utterance and context through the RNN
+            outputs_contexts, encoding_context = tf.nn.dynamic_rnn(cell_context,
+                                                                   self.context_embedded,
+                                                                   dtype=tf.float32,
+                                                                   sequence_length=self.context_len)
+            
+        with tf.variable_scope('rnn_context1'):                                                                   
+            cell_context1 = tf.nn.rnn_cell.LSTMCell(
+                self.n_neurons,
+                forget_bias=2.0,
+                use_peepholes=True,
+                state_is_tuple=True)
+
+            residual_contexts = outputs_contexts + self.context_embedded
+            outputs_contexts, encoding_context = tf.nn.dynamic_rnn(cell_context1,
+                                                                   residual_contexts,
+                                                                   dtype=tf.float32,
+                                                                   sequence_length=self.context_len)
+            
+            
+        with tf.variable_scope("rnn_response"):
+            cell_response = tf.nn.rnn_cell.LSTMCell(
+                self.n_neurons,
+                forget_bias=2.0,
+                use_peepholes=True,
+                state_is_tuple=True)
+            outputs_responses, encoding_utterance = tf.nn.dynamic_rnn(cell_response,
+                                                                      self.utterance_embedded,
+                                                                      dtype=tf.float32,
+                                                                      sequence_length=self.utterance_len)
+
+        with tf.variable_scope("rnn_response1"):
+            cell_response1 = tf.nn.rnn_cell.LSTMCell(
+                self.n_neurons,
+                forget_bias=2.0,
+                use_peepholes=True,
+                state_is_tuple=True)
+            
+            residual_utterance = outputs_responses + self.utterance_embedded
+            outputs_responses, encoding_utterance = tf.nn.dynamic_rnn(cell_response1,
+                                                                      residual_utterance,
+                                                                      dtype=tf.float32,
+                                                                      sequence_length=self.utterance_len)
+
+
+            
+        logging.info('### Before taking hidden state Shape of context output is {}'.format(outputs_contexts.shape))
+        encoding_context = encoding_context.h
+        encoding_utterance = encoding_utterance.h
+
+        print("context encoded shape: {0}, utterance encoded shape {1}".format(encoding_context.shape,
+                                                                               encoding_utterance.shape)
+              )
+        M = tf.diag([1.0] * self.n_neurons)
+        print ("Shape of M {}".format(M.shape))
+
+        with tf.variable_scope("trainable_parameters"):
+            bias = tf.get_variable("B", shape=None, trainable=True, initializer=0.0)
+
+        # "Predict" a  response: c * M
+        generated_response = tf.matmul(encoding_context, M)
+        # generated_response = tf.expand_dims(generated_response, 2)
+        print ("Shape of gen res {}".format(generated_response.shape))
+        # encoding_utterance = tf.expand_dims(encoding_utterance, 2)
+        print ("Shape of enc utt {}".format(encoding_utterance.shape))
+
+        # Dot product between generated response and actual response
+        # (c * M) * r
+
+        logits = tf.reduce_sum(tf.multiply(generated_response, encoding_utterance), axis=1)
+        logits = tf.add(logits, bias)
+        self.logits = tf.reshape(logits, [-1, 1])
+        print ("Shape of logits at inference {}".format(self.logits.shape))
+        return self.logits
+
+    
     def create_loss(self):
         # logits and labels must have the shape (?, 1)
         logging.info("Shape of logits {0}".format(self.logits.shape))
