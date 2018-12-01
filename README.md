@@ -6,8 +6,10 @@ Alternative architecture for retrevial based chat bot system.
 
 ## To train:
 python driver.py --train
-# To test:
+## To test:
 python driver.py --test checkpoints/my_model.ckpt"""
+
+
 
 # TODO
 - [ ] Add better optimizer. Need to reduce rate when loss doesn't reduce
