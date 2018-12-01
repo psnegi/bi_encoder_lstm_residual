@@ -1,3 +1,4 @@
+
 import tensorflow as tf
 import logging
 import config
@@ -98,8 +99,12 @@ class BiEncoderModel(object):
                 forget_bias=2.0,
                 use_peepholes=True,
                 state_is_tuple=True)
+            residual_context_projection_mat = tf.get_variable(name = 'residual_context_projection_mat',
+                                                                shape = [ self.context_embedded.shape[-1], outputs_contexts.shape[-1] ],
+                                                                initializer =
+                                                                    tf.random_normal_initializer())
 
-            residual_contexts = outputs_contexts + self.context_embedded
+            residual_contexts = outputs_contexts + tf.einsum('bij, jk ->bik', self.context_embedded, residual_context_projection_mat )
             outputs_contexts, encoding_context = tf.nn.dynamic_rnn(cell_context1,
                                                                    residual_contexts,
                                                                    dtype=tf.float32,
@@ -123,8 +128,12 @@ class BiEncoderModel(object):
                 forget_bias=2.0,
                 use_peepholes=True,
                 state_is_tuple=True)
+            residual_response_projection_mat = tf.get_variable(name = 'residual_response_projection_mat',
+                                                                shape = [self.context_embedded.shape[-1], outputs_responses.shape[-1] ],
+                                                                initializer =
+                                                                    tf.random_normal_initializer())
             
-            residual_utterance = outputs_responses + self.utterance_embedded
+            residual_utterance = outputs_responses + tf.einsum('bij, jk ->bik', self.utterance_embedded, residual_response_projection_mat)
             outputs_responses, encoding_utterance = tf.nn.dynamic_rnn(cell_response1,
                                                                       residual_utterance,
                                                                       dtype=tf.float32,
