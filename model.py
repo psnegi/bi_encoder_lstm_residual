@@ -79,6 +79,11 @@ class BiEncoderModel(object):
         self.context_embedded, self.utterance_embedded = data[0], data[1]
         self.context_len, self.utterance_len, self.labels = data[2], data[3], data[4]
         logging.info('### Before using LSTM input context shape {} inout utterance shape {}'.format(data[0].shape, data[1].shape))
+
+        self._projection_mat = tf.get_variable(name = 'projection_mat',
+            shape = [data[0].shape[-1], self.n_neurons ],
+            initializer = tf.random_normal_initializer())
+        logging.info('Shape of projection matrix is {}'.format(self._projection_mat.shape))
         with tf.variable_scope('rnn_context'):
             cell_context = tf.nn.rnn_cell.LSTMCell(
                 self.n_neurons,
@@ -89,26 +94,21 @@ class BiEncoderModel(object):
             # Run the utterance and context through the RNN
             # Run the utterance and context through the RNN
             outputs_contexts, encoding_context = tf.nn.dynamic_rnn(cell_context,
-                                                                   self.context_embedded,
-                                                                   dtype=tf.float32,
-                                                                   sequence_length=self.context_len)
+                self.context_embedded, dtype=tf.float32,
+                sequence_length=self.context_len)
             
-        with tf.variable_scope('rnn_context1'):                                                                   
+        with tf.variable_scope('rnn_context1'):
             cell_context1 = tf.nn.rnn_cell.LSTMCell(
                 self.n_neurons,
                 forget_bias=2.0,
                 use_peepholes=True,
                 state_is_tuple=True)
-            residual_context_projection_mat = tf.get_variable(name = 'residual_context_projection_mat',
-                                                                shape = [ self.context_embedded.shape[-1], outputs_contexts.shape[-1] ],
-                                                                initializer =
-                                                                    tf.random_normal_initializer())
 
-            residual_contexts = outputs_contexts + tf.einsum('bij, jk ->bik', self.context_embedded, residual_context_projection_mat )
+            residual_contexts = outputs_contexts + tf.einsum('bij, jk ->bik',
+                                      self.context_embedded, self._projection_mat )
             outputs_contexts, encoding_context = tf.nn.dynamic_rnn(cell_context1,
-                                                                   residual_contexts,
-                                                                   dtype=tf.float32,
-                                                                   sequence_length=self.context_len)
+                residual_contexts, dtype=tf.float32,
+                sequence_length=self.context_len)
             
             
         with tf.variable_scope("rnn_response"):
@@ -118,9 +118,9 @@ class BiEncoderModel(object):
                 use_peepholes=True,
                 state_is_tuple=True)
             outputs_responses, encoding_utterance = tf.nn.dynamic_rnn(cell_response,
-                                                                      self.utterance_embedded,
-                                                                      dtype=tf.float32,
-                                                                      sequence_length=self.utterance_len)
+                                                self.utterance_embedded,
+                                                dtype=tf.float32,
+                                                sequence_length=self.utterance_len)
 
         with tf.variable_scope("rnn_response1"):
             cell_response1 = tf.nn.rnn_cell.LSTMCell(
@@ -128,18 +128,13 @@ class BiEncoderModel(object):
                 forget_bias=2.0,
                 use_peepholes=True,
                 state_is_tuple=True)
-            residual_response_projection_mat = tf.get_variable(name = 'residual_response_projection_mat',
-                                                                shape = [self.context_embedded.shape[-1], outputs_responses.shape[-1] ],
-                                                                initializer =
-                                                                    tf.random_normal_initializer())
             
-            residual_utterance = outputs_responses + tf.einsum('bij, jk ->bik', self.utterance_embedded, residual_response_projection_mat)
+            residual_utterance = outputs_responses + tf.einsum('bij, jk ->bik',
+                                       self.utterance_embedded, self._projection_mat)
             outputs_responses, encoding_utterance = tf.nn.dynamic_rnn(cell_response1,
-                                                                      residual_utterance,
-                                                                      dtype=tf.float32,
-                                                                      sequence_length=self.utterance_len)
-
-
+                                                residual_utterance,
+                                                dtype=tf.float32,
+                                                sequence_length=self.utterance_len)
             
         logging.info('### Before taking hidden state Shape of context output is {}'.format(outputs_contexts.shape))
         encoding_context = encoding_context.h
@@ -170,6 +165,26 @@ class BiEncoderModel(object):
         print ("Shape of logits at inference {}".format(self.logits.shape))
         return self.logits
 
+
+    def create_loss_with_residual_arch(self):
+        # logits and labels must have the shape (?, 1)
+        logging.info("Shape of logits {0}".format(self.logits.shape))
+        logits = tf.reshape(self.logits, [-1, 1])
+        labels = tf.reshape(self.labels, [-1, 1])
+
+        with tf.name_scope('loss'):
+            self.losses = tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.to_float(labels), logits=logits)
+
+        # Adding contraint on proj matrix with orthonormal colums so that
+        #realtive distance is preserved after projection
+        projection_orthonormality = tf.matmul(tf.transpose(self._projection_mat), self._projection_mat)
+        I = tf.eye(int(projection_orthonormality.shape[0]))
+        logging.info('Building losss with projection matrix ortho normal constraint')
+        logging.info('shape if identyty matrix is {}'.format(I.shape))
+        diff_from_eye = projection_orthonormality  - I
+        projection_mat_constraint = 1.0 * tf.math.reduce_sum(tf.pow(diff_from_eye, 2))
+        
+        return tf.reduce_mean(self.losses) + projection_mat_constraint
     
     def create_loss(self):
         # logits and labels must have the shape (?, 1)

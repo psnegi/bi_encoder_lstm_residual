@@ -141,7 +141,7 @@ def train():
         logging.info("Building graph")
         logits = model.inference_residual(next_batch)
         tf.add_to_collection('logits_tensor', logits)
-        loss_op = model.create_loss()
+        loss_op = model.create_loss_with_residual_arch()
         train_op = model.create_optimizer()  # for training
 
         # other ops for visualization, evaluation etc
